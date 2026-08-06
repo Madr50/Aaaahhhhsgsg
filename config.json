@@ -2,8 +2,8 @@
     "thread": 50,
     "proxies": "http",
     "webhook": {
-        "url": "",
-        "username": "DNG Promo",
+        "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
+        "username": "l6j6",
         "avatar": ""
     },
     "auto_scrape_proxies": true,
