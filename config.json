@@ -2,34 +2,81 @@
     "thread": 50,
     "proxies": "http",
     "webhook": {
-        "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
-        "username": "l6j6",
+        "url": "",
+        "username": "DNG Promo",
         "avatar": ""
     },
     "auto_scrape_proxies": true,
     "proxy_sources": [
-        "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
-        "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt",
-        "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/http_all.txt",
-        "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/socks5_all.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks5.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/http/http.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/socks5/socks5.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/xResults/Proxies.txt",
-        "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/http.txt",
-        "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/socks5.txt"
+        {
+            "url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
+            "type": "auto"
+        },
+        {
+            "url": "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt",
+            "type": "auto"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt",
+            "type": "socks4"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt",
+            "type": "socks5"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/http_all.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/socks5_all.txt",
+            "type": "socks5"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks5.txt",
+            "type": "socks5"
+        },
+        {
+            "url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/http/http.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/socks5/socks5.txt",
+            "type": "socks5"
+        },
+        {
+            "url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/xResults/Proxies.txt",
+            "type": "auto"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/http.txt",
+            "type": "http"
+        },
+        {
+            "url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/socks5.txt",
+            "type": "socks5"
+        }
     ],
-    "check_timeout": 8,
-    "delay_min": 0.3,
-    "delay_max": 1.5,
+    "check_timeout": 10,
+    "delay_min": 0.5,
+    "delay_max": 2.0,
     "use_random_ua": true,
     "promo_code_length": 24,
     "api_version": "v9",
     "max_retries": 3,
-    "scrape_interval_minutes": 30
+    "scrape_interval_minutes": 30,
+    "restart_on_crash": true,
+    "save_invalid": false
 }
