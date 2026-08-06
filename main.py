@@ -13,7 +13,7 @@ RESULTS_PATH = 'results/hit.txt'
 DEFAULT_CONFIG = {
     "concurrent": 500,
     "webhook": {
-        "url": "",
+        "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
         "username": "DNG Promo",
         "avatar": ""
     },
