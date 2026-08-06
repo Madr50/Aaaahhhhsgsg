@@ -1,4 +1,4 @@
-import os, requests, random, threading, json, time, sys
+import os, requests, random, threading, json, time, sys, signal
 from colorama import Fore, init
 
 init(autoreset=True)
@@ -12,36 +12,38 @@ DEFAULT_CONFIG = {
     "thread": 50,
     "proxies": "http",
     "webhook": {
-        "url": "",
-        "username": "DNG Promo",
+        "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
+        "username": "l6j6",
         "avatar": ""
     },
     "auto_scrape_proxies": True,
     "proxy_sources": [
-        "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
-        "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt",
-        "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt",
-        "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/http_all.txt",
-        "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/socks5_all.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt",
-        "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks5.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/http/http.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/socks5/socks5.txt",
-        "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/xResults/Proxies.txt",
-        "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/http.txt",
-        "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/socks5.txt"
+        {"url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text", "type": "auto"},
+        {"url": "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.txt", "type": "auto"},
+        {"url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt", "type": "http"},
+        {"url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt", "type": "socks4"},
+        {"url": "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt", "type": "socks5"},
+        {"url": "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/http_all.txt", "type": "http"},
+        {"url": "https://raw.githubusercontent.com/VPSLabCloud/VPSLab-Free-Proxy-List/main/socks5_all.txt", "type": "socks5"},
+        {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt", "type": "http"},
+        {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt", "type": "http"},
+        {"url": "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/socks5.txt", "type": "socks5"},
+        {"url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/http/http.txt", "type": "http"},
+        {"url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/socks5/socks5.txt", "type": "socks5"},
+        {"url": "https://cdn.jsdelivr.net/gh/officialputuid/KangProxy@main/xResults/Proxies.txt", "type": "auto"},
+        {"url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/http.txt", "type": "http"},
+        {"url": "https://raw.githubusercontent.com/iplocate/free-proxy-list/main/proxies/socks5.txt", "type": "socks5"}
     ],
-    "check_timeout": 8,
-    "delay_min": 0.3,
-    "delay_max": 1.5,
+    "check_timeout": 10,
+    "delay_min": 0.5,
+    "delay_max": 2.0,
     "use_random_ua": True,
     "promo_code_length": 24,
     "api_version": "v9",
     "max_retries": 3,
-    "scrape_interval_minutes": 30
+    "scrape_interval_minutes": 30,
+    "restart_on_crash": True,
+    "save_invalid": False
 }
 
 USER_AGENTS = [
@@ -67,15 +69,32 @@ def load_config():
             json.dump(DEFAULT_CONFIG, f, indent=4)
         return DEFAULT_CONFIG.copy()
     with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+        cfg = json.load(f)
+    # Migrate old string-only sources to dict format
+    sources = cfg.get("proxy_sources", [])
+    new_sources = []
+    for s in sources:
+        if isinstance(s, str):
+            # Detect type from URL
+            t = "http"
+            if "socks5" in s.lower(): t = "socks5"
+            elif "socks4" in s.lower(): t = "socks4"
+            new_sources.append({"url": s, "type": t})
+        else:
+            new_sources.append(s)
+    cfg["proxy_sources"] = new_sources
+    return cfg
 
 def save_config(cfg):
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=4)
 
 def center(var: str, space: int = None):
-    if not space:
-        space = (os.get_terminal_size().columns - len(var.splitlines()[int(len(var.splitlines()) / 2)])) / 2
+    try:
+        if not space:
+            space = (os.get_terminal_size().columns - len(var.splitlines()[int(len(var.splitlines()) / 2)])) / 2
+    except:
+        space = 0
     return "\n".join((' ' * int(space)) + line for line in var.splitlines())
 
 # ─── PROXY SCRAPER ───
@@ -86,39 +105,48 @@ class ProxyScraper:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
 
-    def _clean_proxy(self, line):
+    def _clean_proxy(self, line, default_type="http"):
         line = line.strip()
-        if not line:
+        if not line or line.startswith("#"):
             return None
-        # Remove protocol prefix if present
+        # If line already has protocol
         for prefix in ['http://', 'https://', 'socks4://', 'socks5://']:
             if line.lower().startswith(prefix):
-                line = line[len(prefix):]
-                break
-        # Validate IP:PORT format
+                # Validate
+                rest = line[len(prefix):]
+                if ':' in rest:
+                    parts = rest.rsplit(':', 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        port = int(parts[1])
+                        if 1 <= port <= 65535:
+                            return line
+                return None
+        # No protocol - add default
         if ':' in line:
             parts = line.rsplit(':', 1)
             if len(parts) == 2 and parts[1].isdigit():
                 port = int(parts[1])
                 if 1 <= port <= 65535:
-                    return line
+                    return f"{default_type}://{line}"
         return None
 
     def scrape(self):
         self.proxies = []
         print(f"{Fore.CYAN}[INFO]{Fore.RESET} Scraping proxies from {len(self.sources)} source(s)...\n")
-        for url in self.sources:
+        for src in self.sources:
+            url = src.get("url", "") if isinstance(src, dict) else src
+            ptype = src.get("type", "http") if isinstance(src, dict) else "http"
             try:
                 r = self.session.get(url, timeout=20, headers={"User-Agent": random.choice(USER_AGENTS)})
                 if r.status_code == 200:
-                    lines = [self._clean_proxy(line) for line in r.text.splitlines()]
+                    lines = [self._clean_proxy(line, ptype) for line in r.text.splitlines()]
                     lines = [p for p in lines if p]
                     self.proxies.extend(lines)
-                    print(f"{Fore.GREEN}[OK]{Fore.RESET}  {url[:60]}... -> {len(lines)} proxies")
+                    print(f"{Fore.GREEN}[OK]{Fore.RESET}  {url[:55]}... -> {len(lines)} {ptype} proxies")
                 else:
-                    print(f"{Fore.RED}[FAIL]{Fore.RESET} {url[:60]}... -> HTTP {r.status_code}")
+                    print(f"{Fore.RED}[FAIL]{Fore.RESET} {url[:55]}... -> HTTP {r.status_code}")
             except Exception as e:
-                print(f"{Fore.RED}[ERR]{Fore.RESET}  {url[:60]}... -> {str(e)[:40]}")
+                print(f"{Fore.RED}[ERR]{Fore.RESET}  {url[:55]}... -> {str(e)[:45]}")
         # Deduplicate
         self.proxies = list(dict.fromkeys(self.proxies))
         print(f"\n{Fore.CYAN}[INFO]{Fore.RESET} Total unique proxies scraped: {Fore.GREEN}{len(self.proxies)}{Fore.RESET}")
@@ -134,7 +162,7 @@ class ProxyScraper:
         if not os.path.exists(path):
             return []
         with open(path, 'r', encoding='utf-8') as f:
-            return [line.strip() for line in f if line.strip() and ':' in line]
+            return [line.strip() for line in f if line.strip() and '://' in line]
 
 # ─── CONSOLE ───
 class Console:
@@ -146,7 +174,7 @@ class Console:
 ██████╗ ███╗   ██╗ ██████╗ 
 ██╔══██╗████╗  ██║██╔════╝            ~ Discord Promo Generator ~
 ██║  ██║██╔██╗ ██║██║  ███╗     
-██║  ██║██║╚██╗██║██║   ██║     Auto-Proxy Scraper ~ 24/7 ~ v2.0
+██║  ██║██║╚██╗██║██║   ██║     Auto-Proxy ~ SOCKS/HTTP ~ 24/7
 ██████╔╝██║ ╚████║╚██████╔╝ 
 ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ \n\n
               """)
@@ -164,7 +192,7 @@ class Console:
         if not os.path.exists(PROXIES_PATH):
             return 0
         with open(PROXIES_PATH, 'r', encoding='utf-8') as f:
-            return sum(1 for line in f if line.strip() and ':' in line)
+            return sum(1 for line in f if line.strip() and '://' in line)
 
 # ─── WORKER ───
 class Worker:
@@ -180,6 +208,7 @@ class Worker:
         self.ratelimited = 0
         self.retries = 0
         self.errors = 0
+        self.running = True
 
     def random_proxy(self):
         if not self.proxies:
@@ -251,14 +280,12 @@ class Worker:
         proxy = self.random_proxy()
         proxies = None
         if proxy:
-            protocol = self.config.get("proxies", "http")
             proxies = {
-                "http": f"{protocol}://{proxy}",
-                "https": f"{protocol}://{proxy}"
+                "http": proxy,
+                "https": proxy
             }
 
         api_ver = self.config.get("api_version", "v9")
-        # Discord Gift Code API endpoint - returns gift code object if valid, 404 if invalid
         url = f"https://discord.com/api/{api_ver}/entitlements/gift-codes/{code}?with_application=false&with_subscription_plan=true"
 
         try:
@@ -266,25 +293,22 @@ class Worker:
                 url,
                 headers=self.get_headers(),
                 proxies=proxies,
-                timeout=self.config.get("check_timeout", 8),
+                timeout=self.config.get("check_timeout", 10),
                 allow_redirects=True
             )
 
             if r.status_code == 200:
                 data = r.json()
-                # Promo/Gift code is VALID
                 self.console.printer(Fore.LIGHTGREEN_EX, " VALID ", code)
                 with self._lock:
                     self.valid += 1
                     self.checked += 1
-                # Save hit
                 with open(RESULTS_PATH, 'a', encoding='utf-8') as f:
                     f.write(f"https://promos.discord.gg/{code}\n")
                 self.send_webhook(code, data)
                 return True
 
             elif r.status_code == 404:
-                # Invalid code - this is the expected response for random codes
                 self.console.printer(Fore.LIGHTRED_EX, "Invalid", code)
                 with self._lock:
                     self.invalid += 1
@@ -309,7 +333,6 @@ class Worker:
                 with self._lock:
                     self.checked += 1
                     self.errors += 1
-                # Rotate proxy immediately
                 return False
 
             elif r.status_code == 400:
@@ -329,7 +352,7 @@ class Worker:
                     self.checked += 1
                 return True
 
-        except requests.exceptions.ProxyError as e:
+        except requests.exceptions.ProxyError:
             if attempt < self.config.get("max_retries", 3):
                 return self.check_code(code, attempt + 1)
             with self._lock:
@@ -353,7 +376,7 @@ class Worker:
         except KeyboardInterrupt:
             raise
 
-        except Exception as e:
+        except Exception:
             if attempt < self.config.get("max_retries", 3):
                 return self.check_code(code, attempt + 1)
             with self._lock:
@@ -361,22 +384,24 @@ class Worker:
             return True
 
     def run(self):
-        while True:
+        while self.running:
             try:
                 code = self.generate_code()
                 self.check_code(code)
-                # Random delay to avoid rate limits
                 time.sleep(random.uniform(
-                    self.config.get("delay_min", 0.3),
-                    self.config.get("delay_max", 1.5)
+                    self.config.get("delay_min", 0.5),
+                    self.config.get("delay_max", 2.0)
                 ))
             except KeyboardInterrupt:
+                self.running = False
                 break
 
 # ─── STATS PRINTER ───
 def stats_worker(worker):
-    while True:
+    while worker.running:
         time.sleep(15)
+        if not worker.running:
+            break
         worker.console.log(
             Fore.CYAN, "STATS",
             f"Checked: {worker.checked} | Valid: {Fore.GREEN}{worker.valid}{Fore.RESET} | "
@@ -387,8 +412,10 @@ def stats_worker(worker):
 # ─── PROXY RE-SCRAPER ───
 def proxy_rescraper(config, worker):
     interval = config.get("scrape_interval_minutes", 30) * 60
-    while True:
+    while worker.running:
         time.sleep(interval)
+        if not worker.running:
+            break
         if config.get("auto_scrape_proxies", True):
             worker.console.log(Fore.CYAN, "PROXY", "Re-scraping proxies...")
             scraper = ProxyScraper(config.get("proxy_sources", DEFAULT_CONFIG["proxy_sources"]))
@@ -400,7 +427,7 @@ def proxy_rescraper(config, worker):
                 worker.console.log(Fore.GREEN, "PROXY", f"Updated to {len(new_proxies)} fresh proxies!")
 
 # ─── MAIN ───
-if __name__ == "__main__":
+def main():
     console = Console()
     console.ui()
 
@@ -427,7 +454,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     console.log(Fore.CYAN, "INFO", f"{len(proxies)} Total proxies loaded...")
-    console.log(Fore.CYAN, "INFO", f"Threads: {cfg.get('thread', 50)} | Delay: {cfg.get('delay_min', 0.3)}s-{cfg.get('delay_max', 1.5)}s")
+    console.log(Fore.CYAN, "INFO", f"Threads: {cfg.get('thread', 50)} | Delay: {cfg.get('delay_min', 0.5)}s-{cfg.get('delay_max', 2.0)}s")
     console.log(Fore.CYAN, "INFO", f"API: discord.com/api/{cfg.get('api_version', 'v9')}/entitlements/gift-codes/<code>")
     console.log(Fore.CYAN, "INFO", "Starting workers...\n")
 
@@ -441,11 +468,12 @@ if __name__ == "__main__":
 
     # Start workers
     try:
-        while True:
+        while worker.running:
             if threading.active_count() <= int(cfg.get("thread", 50)) + 3:
                 t = threading.Thread(target=worker.run, daemon=True)
                 t.start()
     except KeyboardInterrupt:
+        worker.running = False
         console.ui()
         console.log(Fore.LIGHTRED_EX, "STOP", "Promo Gen Stopped by Keyboard Interrupt.")
         console.log(Fore.CYAN, "STATS", f"Final -> Checked: {worker.checked} | Valid: {worker.valid} | Invalid: {worker.invalid}")
@@ -453,3 +481,19 @@ if __name__ == "__main__":
             os.system('pause >nul')
         else:
             input("Press Enter to exit...")
+
+if __name__ == "__main__":
+    # Auto-restart on crash if enabled
+    cfg = load_config()
+    if cfg.get("restart_on_crash", True):
+        while True:
+            try:
+                main()
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"{Fore.LIGHTRED_EX}[CRASH]{Fore.RESET} {e}")
+                print(f"{Fore.CYAN}[INFO]{Fore.RESET} Restarting in 5 seconds...")
+                time.sleep(5)
+    else:
+        main()
