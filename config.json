@@ -1,8 +1,9 @@
 {
-    "concurrent": 500,
+    "concurrent": 2000,
+    "batch_size": 1000,
     "webhook": {
         "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
-        "username": "DNG Promo",
+        "username": "leo/l6",
         "avatar": ""
     },
     "auto_scrape_proxies": true,
@@ -68,11 +69,18 @@
             "type": "socks5"
         }
     ],
-    "timeout": 5,
+    "timeout": 3,
+    "proxy_check_timeout": 5,
+    "proxy_check_url": "https://discord.com/api/v9/gateway",
+    "max_good_proxies": 5000,
     "use_random_ua": true,
     "promo_code_length": 24,
     "promo_format": "plain",
     "api_version": "v9",
-    "scrape_interval_minutes": 30,
-    "restart_on_crash": true
+    "scrape_interval_minutes": 20,
+    "restart_on_crash": true,
+    "dns_cache_ttl": 300,
+    "keepalive_timeout": 30,
+    "tcp_limit": 0,
+    "tcp_limit_per_host": 0
 }
