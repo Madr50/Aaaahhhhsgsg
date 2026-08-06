@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
     "batch_size": 1000,
     "webhook": {
         "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
-        "username": "leo/l6",
+        "username": "leo",
         "avatar": ""
     },
     "auto_scrape_proxies": True,
