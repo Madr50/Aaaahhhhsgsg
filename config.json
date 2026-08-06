@@ -1,9 +1,8 @@
 {
-    "thread": 50,
-    "proxies": "http",
+    "concurrent": 500,
     "webhook": {
-        "url": "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text",
-        "username": "l6j6",
+        "url": "https://discord.com/api/webhooks/1534684880288612513/lYtS-D0S3a2ifLLKuA9kFxHWcIMi8IDQuoBRLsP2UZP1PdZGrQnRKYi6GBu9DPvAikCf",
+        "username": "DNG Promo",
         "avatar": ""
     },
     "auto_scrape_proxies": true,
@@ -69,14 +68,11 @@
             "type": "socks5"
         }
     ],
-    "check_timeout": 10,
-    "delay_min": 0.5,
-    "delay_max": 2.0,
+    "timeout": 5,
     "use_random_ua": true,
     "promo_code_length": 24,
+    "promo_format": "plain",
     "api_version": "v9",
-    "max_retries": 3,
     "scrape_interval_minutes": 30,
-    "restart_on_crash": true,
-    "save_invalid": false
+    "restart_on_crash": true
 }
